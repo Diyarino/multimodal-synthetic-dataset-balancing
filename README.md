@@ -13,7 +13,9 @@ Explore the code to implement these augmentations in your multimodal deep learni
 
 The following image demonstrates sample augmentations from our pipeline, showcasing realistic industrial failure modes simulated in multimodal data. These include sensor noise injections, temporal misalignments between modalities, and spatial corruptions mimicking equipment degradation. Each example reflects common challenges encountered in real-world industrial settings. The failure injection is based on our pre-work [1].
 
-![screenshot](examples.png)
+<p align="center">
+  <img src="examples.png" width="500" height="800" alt="til">
+</p>
 
 ### 📦 Prerequisites
 
