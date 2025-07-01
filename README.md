@@ -1,19 +1,24 @@
 # Multimodal Synthetic Dataset Balancing
 
-Deep neural networks perform well on clean, unimodal data (e.g., sensors, images, or audio). While multimodal data can enhance performance, real-world industrial settings often face data corruption (e.g., noise, blur, or sensor failures), leading to significant performance drops. Existing data augmentation techniques primarily focus on improving model generalization but fail to simulate realistic industrial scenarios. This repository provides **industry-specific augmentation methods** for **temporal and spatial data**, tailored for **multimodal fusion** in deep neural networks. Our approach:  
+Deep neural networks excel at processing **unimodal data** (sensors, images, audio), but real-world **multimodal systems** often face corrupted signals (sensor failures, noise, or coverage gaps). This repository contains a fuzzy regularization method** for deep multimodal networks that:  
 
-- Promotes **modality collaboration**  
-- Strengthens **generalization** under real-world conditions
-- Realistic industrial augmentation for **temporal & spatial data**    
-
-Explore the code to implement these augmentations in your multimodal deep learning pipelines!  
+- Dynamically adjusts feature importance based on **signal quality**  
+- Compensates for sensor malfunctions/uncertainties  
+- Works with **image + time-series data**  
 
 
-### 🚨 Anomaly Injection
+### ✨ Fuzzy latent-space regularization
 
-The following image demonstrates sample augmentations from our pipeline, showcasing realistic industrial failure modes simulated in multimodal data. These include sensor noise injections, temporal misalignments between modalities, and spatial corruptions mimicking equipment degradation. Each example reflects common challenges encountered in real-world industrial settings. The failure injection is based on our pre-work [1].
 
-![screenshot](examples.png)
+In the realm of neural networks, **target activations** represent the desired output values for specific neurons or layers, often reflecting the ground truth or a predefined ideal state. The primary objective of a loss function is to quantify the discrepancy between the network's actual activations and the target activations. By minimizing this loss, we guide the network to adjust its internal parameters (weights and biases) such that its computed activations increasingly approximate the desired targets.
+
+![screenshot](traget.png)
+
+
+As training progresses over multiple epochs, the loss function continually guides the weight adjustments. This iterative process allows the neuron's activations to gradually "converge" towards the predefined target activations for each class, thereby improving the network's ability to detect anomalies.
+
+![til](animation.gif)
+
 
 ### 📦 Prerequisites
 
@@ -41,8 +46,8 @@ If you use this code or build upon our work, please cite our paper:
 
 
 ```bibtex
-@inproceedings{altinses2023multimodal,
-  title={Multimodal Synthetic Dataset Balancing: A Framework for Realistic and Balanced Training Data Generation in Industrial Settings},
+@inproceedings{altinses2023deep,
+  title={Deep Multimodal Fusion with Corrupted Spatio-Temporal Data Using Fuzzy Regularization},
   author={Altinses, Diyar and Schwung, Andreas},
   booktitle={IECON 2023-49th Annual Conference of the IEEE Industrial Electronics Society},
   pages={1--7},
