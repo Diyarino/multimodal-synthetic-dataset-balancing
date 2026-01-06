@@ -1,242 +1,186 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 18 14:11:59 2022
+Augmentation Pipeline and Region Processing.
+
+Provides classes to compose multiple augmentations and apply them 
+either globally or to specific regions of the data.
 
 @author: Diyar Altinses, M.Sc.
-
-to-do:
-    - 
 """
 
-#%% imports
-
+from typing import Dict, List, Tuple, Union, Optional, Any
 import torch
-import augmentation as augmentations
+import torch.nn as nn
 import torchvision.transforms as transforms
+import augmentation as augmentations
 
-# %% augmentations
 
-class Compose(torch.nn.Module):
-    def __init__(self, augmentation_dict: dict = {}, shuffle: bool = False, mode = 'single'):
-        """
-        Load the Modules of the augmenttaion dict with the corresponding arguments and compose them.
+class Compose(nn.Module):
+    """
+    Composes multiple augmentations based on a configuration dictionary.
     
+    Modes:
+    - 'all': Applies all defined augmentations sequentially.
+    - 'single': Selects exactly one augmentation randomly per forward pass.
+    """
+
+    def __init__(
+        self, 
+        augmentation_dict: Dict[str, dict], 
+        shuffle: bool = False, 
+        mode: str = 'single'
+    ):
+        """
         Parameters
         ----------
-        inp : array
-            
-        augmentation_dict : dict, optional
-            The augmentation methods with the corresponding arguments. The default is {}.
-        shuffle : bool, optional
-            If the augmentation dict should be shuffled. The default is False.
-        mode : str, optional
-            Defines weather one random augmnetation is applied or all.
-            
-        Returns
-        -------
-        None.
-        
+        augmentation_dict : dict
+            Dictionary where keys are class names and values are parameter dicts.
+            Example: {'AdditiveGaussianNoise': {'std': 0.1}, 'RandomFlip': {}}
+        shuffle : bool
+            If True, shuffles the order of augmentations (only relevant for mode='all').
+        mode : str
+            'all' or 'single'. Defines execution strategy.
         """
         super().__init__()
-        self.augmentation_dict = augmentation_dict
+        self.config = augmentation_dict
         self.shuffle = shuffle
         self.mode = mode
-        self.modules = self.load_modules()
-        self.augmentation = transforms.Compose(self.modules)
         
-    def load_modules(self):
-        '''
-        Load all augmentations from costum lib or torch lib. if its available in torch it is prefered.
+        # Load modules and register them as sub-modules
+        self.ops = nn.ModuleList(self._load_modules())
 
-        Raises
-        ------
-            Raise error if modules doesnt exist in both of the libs.
-
-        Returns
-        -------
-        torchvision.transforms
-            The whole augmentations composed in one object.
-
-        '''
+    def _load_modules(self) -> List[nn.Module]:
+        """
+        Dynamically loads augmentation classes from 'augmentation' lib or 'torchvision'.
+        """
         modules = []
-        keys = list(self.augmentation_dict)
-        index = torch.randperm(len(keys)) if self.shuffle else torch.arange(len(keys))
-        for idx in index:
-            if hasattr(transforms, keys[idx]):
-                modules.append(getattr(transforms, keys[idx])(**self.augmentation_dict[keys[idx]]))
-            elif hasattr(augmentations, keys[idx]):
-                modules.append(getattr(augmentations, keys[idx])(**self.augmentation_dict[keys[idx]]))
-            else:
-                raise Exception('do not know this augmentation method: {}'.format(keys[idx]))
-
-        return modules
-    
-    def select_single(self, idx: int = 0):
-        '''
-        Select one single augmentation from the dict and use it.
-
-        Parameters
-        ----------
-        idx : int
-            The index of the selected augmentation.
-
-        Returns
-        -------
-        None.
-
-        '''
-        #self.modules = [self.modules[idx]]
-        self.augmentation = transforms.Compose([self.modules[idx]])
-        return self.modules[idx]
-        
-        
-    def select_combinations(self, combinations: list = []):
-        '''
-        Select one multiple augmentation from the dict and use it.
-
-        Parameters
-        ----------
-        combinations : list[List[idx,...]]
-            The indexes of the selected augmentation.
-
-        Returns
-        -------
-        None.
-
-        '''
-        combined_modules = []
-        for combi in combinations:
-            modules = [self.modules[idx] for idx in combi]
-            combined_modules.append(transforms.Compose(modules))
-        self.modules = combined_modules
-        self.augmentation = transforms.Compose(combined_modules)
-    
-    def __repr__(self):
-        """
-        Represent the class.
-
-        Returns
-        -------
-        str
-            The representation of the class.
-
-        """
-        return '{}'.format(self.augmentation)
-        
-    def forward(self, inp: torch.Tensor, batched = False) -> torch.Tensor:
-        """
-        Call argumentation.
-
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be flipped.
-
-        Returns
-        -------
-        out :  torch.Tensor
-            The modified input.
-
-        """
-        if not batched:
-            if self.mode == 'single':
-                index = torch.randint(0, len(self.modules), (1,))
-                self.select_single(index)
-                out = self.augmentation(inp)
-            else:
-                out = self.augmentation(inp)
-                
-        if batched:
-            storage = []
-            for sample in inp:
-                index = torch.randint(0, len(self.modules), (1,))
-                self.select_single(index)
-                storage.append(self.augmentation(sample))
-            out = torch.stack(storage)
+        for name, params in self.config.items():
+            # 1. Try Custom Lib (Your optimized classes)
+            if hasattr(augmentations, name):
+                cls = getattr(augmentations, name)
+                modules.append(cls(**params))
             
-        return out
-    
-    
-    
-# %% augmentations
-
-
-class RandomApplyArea(torch.nn.Module):
-    def __init__(self, start: tuple = (0,0), len: int = 1, width: int = 1, 
-                 random: bool = False, augmentation_dict: dict = {}):
-        '''
+            # 2. Try Torchvision
+            elif hasattr(transforms, name):
+                cls = getattr(transforms, name)
+                modules.append(cls(**params))
+            
+            else:
+                raise ImportError(f"Augmentation class '{name}' not found in 'augmentation' or 'torchvision'.")
         
+        return modules
 
-        Parameters
-        ----------
-        start : tuple, optional
-            DESCRIPTION. The default is (0,0).
-        len : int, optional
-            DESCRIPTION. The default is 1.
-        width : int, optional
-            DESCRIPTION. The default is 1.
-        random : bool, optional
-            DESCRIPTION. The default is False.
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply augmentations.
 
-        Returns
-        -------
-        None.
+        Args:
+            x (torch.Tensor): Input tensor.
+        """
+        if len(self.ops) == 0:
+            return x
 
-        '''
-        super().__init__()
-        self.start = start
-        self.len = len
-        self.width = width
-        self.random = random
-        self.augmentation = Compose(augmentation_dict)
-        
+        # Determine execution order
+        indices = list(range(len(self.ops)))
+
+        if self.mode == 'single':
+            # Pick one random index
+            idx = torch.randint(0, len(self.ops), (1,)).item()
+            indices = [idx]
+        elif self.shuffle:
+            # Random permutation of all indices
+            indices = torch.randperm(len(self.ops)).tolist()
+
+        # Execute
+        for i in indices:
+            x = self.ops[i](x)
+
+        return x
+
     def __repr__(self):
+        return f"AugmentationPipeline(mode='{self.mode}', ops={self.ops})"
+
+
+class RandomApplyArea(nn.Module):
+    """
+    Applies an augmentation pipeline to a random rectangular sub-region.
+    (Formerly RandomApplyArea).
+    """
+
+    def __init__(
+        self, 
+        augmentation_dict: Dict[str, dict],
+        min_size: Tuple[int, int] = (10, 10),
+        random_pos: bool = True,
+        fixed_region: Optional[Tuple[int, int, int, int]] = None
+    ):
         """
-        Represent the class.
-
-        Returns
-        -------
-        str
-            The representation of the class.
-
-        """
-        return self.__class__.__name__+'(start={}, len={}, width={}, random={})'.format(
-            self.start, self.len, self.width, self.random)
-
-    def forward(self, inp: torch.Tensor, min_size: int = 10) -> torch.Tensor:
-        """
-        Call argumentation.
-
         Parameters
         ----------
-        inp : torch.Tensor
-            The input array which needs to be puzzled. Have to be 1 or 2 (batch) dimensional.
-
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
-
+        augmentation_dict : dict
+            Configuration for the augmentations to apply inside the region.
+        min_size : tuple
+            (min_height, min_width) for the random region.
+        random_pos : bool
+            If True, selects a new random region for every batch/forward pass.
+        fixed_region : tuple, optional
+            (start_y, start_x, height, width) used if random_pos is False.
         """
-        if self.random:
-            shape = torch.tensor(inp.shape)
-            self.start = torch.randint(0, min(shape[-2:] - min_size), (2,))
-            self.len = torch.randint(0, shape[-2] - self.start[0], (1,))
-            self.width = torch.randint(0, shape[-1] - self.start[1], (1,))
-        inp[..., self.start[0]: self.start[0] + self.len, self.start[1]: self.start[1] + self.width] = self.augmentation(
-            inp[..., self.start[0]: self.start[0] + self.len, self.start[1]: self.start[1] + self.width])
-        return inp
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
+        super().__init__()
+        self.pipeline = Compose(augmentation_dict, mode='all')
+        self.min_size = min_size
+        self.random_pos = random_pos
+        self.fixed_region = fixed_region
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            x (torch.Tensor): Input (N, C, H, W) or (N, C, L).
+        """
+        # Handle 3D inputs (N, C, L) by viewing as 4D (N, C, 1, L)
+        is_1d = False
+        if x.ndim == 3:
+            is_1d = True
+            x = x.unsqueeze(2)
+
+        N, C, H, W = x.shape
+
+        # Determine Region Parameters
+        if self.random_pos:
+            # Ensure valid range
+            max_h = max(H, self.min_size[0])
+            max_w = max(W, self.min_size[1])
+
+            # Random size
+            h_len = torch.randint(self.min_size[0], max_h + 1, (1,)).item()
+            w_len = torch.randint(self.min_size[1], max_w + 1, (1,)).item()
+            
+            # Clamp actual size to image bounds
+            h_len = min(h_len, H)
+            w_len = min(w_len, W)
+
+            # Random start
+            y_start = torch.randint(0, H - h_len + 1, (1,)).item()
+            x_start = torch.randint(0, W - w_len + 1, (1,)).item()
+        else:
+            if self.fixed_region is None:
+                return x if not is_1d else x.squeeze(2)
+            y_start, x_start, h_len, w_len = self.fixed_region
+
+        # 1. Extract Region
+        # Clone to avoid in-place modification errors in computation graph
+        out = x.clone()
+        region = out[..., y_start : y_start + h_len, x_start : x_start + w_len]
+
+        # 2. Apply Pipeline to Region
+        # If is_1d, we need to handle squeezing inside the pipeline if the pipeline expects 3D
+        # But our optimized augmentations handle (N, C, H, W) fine usually.
+        augmented_region = self.pipeline(region)
+
+        # 3. Insert back
+        out[..., y_start : y_start + h_len, x_start : x_start + w_len] = augmented_region
+
+        if is_1d:
+            out = out.squeeze(2)
+
+        return out

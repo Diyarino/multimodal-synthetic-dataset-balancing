@@ -11,6 +11,5 @@ to-do:
 # %%
 
 from .flipping import *
-from .puzzle1d import *
-from .puzzle2d import *
+from .puzzle import *
 from .right2left_switch import *

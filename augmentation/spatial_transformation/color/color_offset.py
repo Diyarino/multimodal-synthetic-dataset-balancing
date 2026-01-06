@@ -1,72 +1,89 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 18 14:12:45 2022
+Augmentation Classes.
+
+Specific augmentation implementations compatible with PyTorch pipelines.
 
 @author: Diyar Altinses, M.Sc.
-
-to-do:
-    - 
 """
 
-# %% imports
-
+from typing import Optional, Tuple
 import torch
 
 # %% augmentations
 
-
 class ColorOffset(torch.nn.Module):
-    def __init__(self, probability: float = 1., low: float = -1., high: float = 1.):
-        """
-        Add some offset to the elements of the input tensor. Control brightness of rgb image matrix. 
+    """
+    Adds a random offset to all channels of the input tensor uniformly.
+    This effectively changes the brightness/intensity of the image or signal.
+    """
 
+    def __init__(
+        self, 
+        probability: float = 1.0, 
+        low: float = -1.0, 
+        high: float = 1.0,
+        clamp: Optional[Tuple[float, float]] = None
+    ):
+        """
         Parameters
         ----------
-        probability : float, optional
-            Randomly adds offset to some of the elements of the input tensor with probability 
-            using samples from a uniform distribution. The default is 1.0.
-        low, high : float, optional
-            limitates the offset in a range.
-
-        Returns
-        -------
-        None.
-
+        probability : float
+            Probability of applying the transform (0.0 to 1.0).
+        low : float
+            Lower bound for the random offset.
+        high : float
+            Upper bound for the random offset.
+        clamp : tuple of float, optional
+            If provided, clamps the output to (min, max). 
+            Example: (0.0, 1.0) for standard normalized images.
         """
         super().__init__()
         self.probability = probability
         self.low = low
         self.high = high
-        
-    def __repr__(self):
+        self.clamp = clamp
+
+    def extra_repr(self) -> str:
+        """Standard PyTorch representation."""
+        return f'probability={self.probability}, low={self.low}, high={self.high}, clamp={self.clamp}'
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Represent the class.
+        Applies the brightness offset.
 
-        Returns
-        -------
-        str
-            The representation of the class.
+        Args:
+            x (torch.Tensor): Input tensor. 
+                              Shape (C, H, W) for single image 
+                              or (N, C, H, W) for batch.
 
+        Returns:
+            torch.Tensor: Modified tensor.
         """
-        return self.__class__.__name__+'(probability={}, low={}, high={})'.format(
-            self.probability, self.low, self.high)
+        # 1. Check Probability (on correct device)
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
+        # 2. Determine Shape for independent noise per image
+        ndim = x.ndim
+        if ndim == 4: 
+            # Batch input: (N, C, H, W) -> Noise shape (N, 1, 1, 1)
+            # Each image gets a DIFFERENT offset, but same offset across C,H,W
+            noise_shape = (x.size(0), 1, 1, 1)
+        else:
+            # Single input: (C, H, W) -> Noise shape (1, 1, 1)
+            noise_shape = (1, 1, 1)
 
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs some offsets.
+        # 3. Generate Noise on correct device
+        # Formula: rand * (max - min) + min
+        noise = torch.rand(noise_shape, device=x.device, dtype=x.dtype)
+        offset = noise * (self.high - self.low) + self.low
 
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
+        # 4. Apply
+        out = x + offset
 
-        """
-        if self.probability > torch.rand(1):
-            # print("offset")
-            inp = inp+torch.rand(1)*(self.high-self.low)+self.low
-        return inp
+        # 5. Clamp (optional but recommended for images)
+        if self.clamp:
+            out = torch.clamp(out, min=self.clamp[0], max=self.clamp[1])
+
+        return out

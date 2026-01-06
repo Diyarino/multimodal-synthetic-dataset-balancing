@@ -1,78 +1,105 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 18 14:16:21 2022
+Random Roll / Cyclic Shift Augmentation.
+
+Shifts the elements of the tensor cyclically along a dimension.
+Elements that roll off one end reappear at the other end.
 
 @author: Diyar Altinses, M.Sc.
-
-to-do:
-    - 
 """
-
-# %% imports
 
 import torch
 
-# %% augmentations
 
+class RandomRoll(torch.nn.Module):
+    """
+    Performs a cyclic shift (roll) on the input tensor.
+    Useful for creating invariance to translation where boundaries wrap around
+    (e.g. 360-degree panorama images or periodic signals).
+    """
 
-class Switch(torch.nn.Module):
-    def __init__(self, probability: float = 1., amount: float = 0.2, dim: int = 1):
+    def __init__(self, probability: float = 1.0, fraction: float = 0.2, dim: int = -1):
         """
-        Switch elements of the input tensor from right to left or vice versa.
-
         Parameters
         ----------
-        probability : float, optional
-            Randomly adds offset to some of the elements of the input tensor with probability 
-            using samples from a uniform distribution. The default is 1.0.
-        amount : float, optional
-            Amount of image to switch from right to left or vice versa. The default is 0.2.
-
-        Returns
-        -------
-        None.
-
+        probability : float
+            Probability of applying the roll.
+        fraction : float
+            Fraction of the dimension size to shift (0.0 to 1.0).
+            Example: 0.2 on a width of 100 pixels means a shift of 20 pixels.
+        dim : int
+            The dimension to roll along.
+            -1 = Width (Left/Right)
+            -2 = Height (Up/Down)
         """
         super().__init__()
         self.probability = probability
-        self.amount = amount
+        self.fraction = fraction
         self.dim = dim
 
-    def __repr__(self):
+    def extra_repr(self) -> str:
+        return f"probability={self.probability}, fraction={self.fraction}, dim={self.dim}"
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Represent the class.
-
-        Returns
-        -------
-        str
-            The representation of the class.
-
+        Args:
+            x (torch.Tensor): Input tensor. Shape (..., H, W).
+            
+        Returns:
+            torch.Tensor: Rolled tensor.
         """
-        return self.__class__.__name__+'(probability={}, amount={}, dim={})'.format(
-            self.probability, self.amount, self.dim)
+        # 1. Probability Check
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
+        # 2. Calculate Shift Amount
+        # Get size of the target dimension
+        size = x.shape[self.dim]
+        shift = int(size * self.fraction)
+        
+        # 3. Determine Direction (Left or Right)
+        # Randomly choose +shift or -shift
+        if torch.rand(1, device=x.device) < 0.5:
+            shift = -shift
 
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be puzzled. Have to be 3 dimensional.
+        # 4. Apply Roll
+        # torch.roll is cleaner and often faster than slicing/cat
+        return torch.roll(x, shifts=shift, dims=self.dim)
 
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
 
-        """
-        if self.probability > torch.rand(1):
-            width = inp.shape[self.dim]
-            amount = int(width * self.amount)
-            if 0.5 > torch.rand(1):
-                inp = torch.cat([inp.narrow(self.dim, amount, width-amount),
-                                inp.narrow(self.dim, 0, amount)], dim=self.dim)
-            else:
-                inp = torch.cat([inp.narrow(self.dim, width-amount, amount),
-                                inp.narrow(self.dim, 0, width-amount)], dim=self.dim)
-        return inp
+# %% Test Block
+
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
+    
+    # Create a dummy image with a distinct pattern (Gradient)
+    # Shape: (1, 1, 100, 100) -> Batch, Channel, Height, Width
+    H, W = 100, 100
+    y, x = torch.meshgrid(torch.linspace(0, 1, H), torch.linspace(0, 1, W), indexing='ij')
+    img = x.unsqueeze(0).unsqueeze(0) # Gradient increases from left to right
+    
+    # 1. Roll Horizontal (Left/Right)
+    # fraction 0.3 means 30% shift
+    aug = RandomRoll(probability=1.0, fraction=0.3, dim=-1)
+    res = aug(img)
+
+    # Visualization
+    #
+    # Use standard matplotlib to visualize the roll effect
+    fig, axs = plt.subplots(1, 2, figsize=(8, 4))
+    
+    axs[0].imshow(img[0, 0], cmap='viridis')
+    axs[0].set_title("Original (Gradient 0->1)")
+    axs[0].axis('off')
+    
+    axs[1].imshow(res[0, 0], cmap='viridis')
+    axs[1].set_title("Rolled (Wrap Around)")
+    axs[1].axis('off')
+    
+    # Draw a line to show the wrap point
+    axs[1].axvline(x=30, color='white', linestyle='--', alpha=0.5)
+    axs[1].axvline(x=70, color='white', linestyle='--', alpha=0.5)
+    
+    plt.tight_layout()
+    plt.show()
+    print("RandomRoll test done.")

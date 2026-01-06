@@ -1,153 +1,181 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Feb 14 14:58:15 2022
+Smoothing & Moving Average Augmentations.
+
+Reduces noise and high-frequency details.
+1. MovingAverage: Standard Box Filter (Uniform weights).
+2. RandomSmoothing: Gaussian-like smoothing with dynamic kernel weights.
 
 @author: Diyar Altinses, M.Sc.
-
-to-do:
-    - 
 """
-
-# %% imports
 
 import torch
 
-# %% argumentations
-
 
 class MovingAverage(torch.nn.Module):
-    def __init__(self, probability: float = 1., window: int = 1, features: int = 0):
-        """
-        Calc moving average of the elements of the input tensor.
+    """
+    Applies a Moving Average (Box Blur) filter.
+    Optimized using Average Pooling.
+    """
 
+    def __init__(self, probability: float = 1.0, window_size: int = 3):
+        """
         Parameters
         ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
-        window : int, optional
-            The window length to calc the average.
-        features: tuple or list, optional
-            Amount of randomly selected features.
-
-        Returns
-        -------
-        None.
-
+        probability : float
+            Probability of applying the augmentation.
+        window_size : int
+            Size of the smoothing window (kernel size). 
+            Should be odd (3, 5, 7...) for symmetry.
         """
         super().__init__()
         self.probability = probability
-        self.window = window
-        self.features = features
+        self.window_size = window_size
+        # Calculate padding to keep output size == input size
+        self.padding = window_size // 2
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
+    def extra_repr(self) -> str:
+        return f"probability={self.probability}, window_size={self.window_size}"
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Call argumentation.
-
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs some trend.
-
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
-
+        Args:
+            x (torch.Tensor): Input tensor (N, C, L).
         """
-        if self.probability > torch.rand(1):
-            features = torch.randint(0, inp.shape[-1], (self.features,))
-            for feature in features:
-                sums = [inp[idx: self.window + idx, feature].sum() for idx in range(inp.shape[0] - self.window)]
-                inp[self.window:, feature] = torch.tensor(sums)/self.window
-        return inp
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
 
-    def __repr__(self):
-        """
-        Represent the class.
+        # Ensure 3D input (N, C, L)
+        if x.ndim == 2:
+            x_in = x.unsqueeze(1)
+        else:
+            x_in = x
 
-        Returns
-        -------
-        str
-            The representation of the class.
+        # Apply Average Pooling
+        # stride=1 makes it a sliding window
+        # padding ensures 'same' output length
+        out = torch.nn.functional.avg_pool1d(
+            x_in, 
+            kernel_size=self.window_size, 
+            stride=1, 
+            padding=self.padding, 
+            count_include_pad=False
+        )
 
-        """
-        return self.__class__.__name__+'(probability={}, window={}, features={})'.format(
-            self.probability, self.window, self.features)
+        # Handle even window sizes (rare case where size changes by 1)
+        if out.shape[-1] != x_in.shape[-1]:
+            out = torch.nn.functional.interpolate(out, size=x_in.shape[-1], mode='linear', align_corners=False)
+
+        # Restore original shape if we unsqueezed
+        if x.ndim == 2:
+            out = out.squeeze(1)
+
+        return out
 
 
+class RandomSmoothing(torch.nn.Module):
+    """
+    Applies a random 3-tap smoothing filter.
+    Kernel weights are dynamic: [factor/2, 1-factor, factor/2].
+    """
 
+    def __init__(self, probability: float = 1.0, factor_range: tuple = (0.0, 0.5)):
+        super().__init__()
+        self.probability = probability
+        self.factor_min = factor_range[0]
+        self.factor_max = factor_range[1]
 
-class Smoothing(torch.nn.Module):
-    def __init__(self, probability: float = 1., lower_limit: float = 0.):
-        """
-        Calc dynamic time warping of the elements of the input tensor.
-    
-        Parameters
-        ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
-        lower_limit : float, optional
-            The window warping val.
+    def extra_repr(self) -> str:
+        return f"probability={self.probability}, factor_range=({self.factor_min}, {self.factor_max})"
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
+
+        # Dimensions handling
+        if x.ndim == 2:
+            x_in = x.unsqueeze(1)
+            was_2d = True
+        else:
+            x_in = x
+            was_2d = False
             
-        Returns
-        -------
-        None.
+        N, C, L = x_in.shape
+        device = x.device
+
+        # 1. Generate Random Factor
+        factor = torch.empty(1, device=device).uniform_(self.factor_min, self.factor_max).item()
+
+        # 2. Create Kernel
+        w_side = factor / 2
+        w_center = 1.0 - factor
         
-        """
-        super().__init__()
-        self.probability = probability
-        self.lower_limit = lower_limit
-        
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
+        # Shape (C, 1, 3) -> Output Channels, Input Channels/Groups, Length
+        kernel = torch.tensor([[[w_side, w_center, w_side]]], device=device)
+        kernel = kernel.repeat(C, 1, 1)
 
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs some trend.
+        # 3. Apply Padding Manually (Robust way)
+        # Pad 1 pixel on left and 1 on right with 'replicate' mode
+        # (replicate repeats the edge value, preventing black borders)
+        x_padded = torch.nn.functional.pad(x_in, (1, 1), mode='replicate')
 
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
+        # 4. Apply Convolution
+        # We set padding=0 inside conv1d because we already padded manually.
+        # We explicitly pass bias=None to keep PyTorch happy.
+        out = torch.nn.functional.conv1d(
+            x_padded, 
+            weight=kernel, 
+            bias=None, 
+            stride=1, 
+            padding=0, 
+            groups=C
+        )
 
-        """
-        if self.probability>torch.rand(1):
-            if inp.ndim == 2:
-                inp = inp.unsqueeze(0)
-                unsqueezed = True
-            else:
-                unsqueezed = False
+        if was_2d:
+            out = out.squeeze(1)
+            
+        return out
 
-            # factor = torch.rand(1, device=inp.device)
-            # factor = 0.4
-            factor = torch.FloatTensor(1).uniform_(self.lower_limit, 1)
+# %% Test Block
 
-            conv2 = torch.nn.Conv1d(inp.size(1), inp.size(1), 3, padding=1, groups=inp.size(1),
-                                    padding_mode='replicate', bias=False).to(inp.device)
-
-            kernel = torch.tensor((factor / 2, 1 - factor, factor / 2), device=inp.device).expand(inp.size(1), 1, -1)
-            conv2.weight.inp = kernel
-
-            with torch.no_grad():
-                ret_data = conv2(inp)
-                ret_data[:, :, 0] = inp[:, :, 0]
-                ret_data[:, :, -1] = inp[:, :, -1]
-
-            inp = ret_data if not unsqueezed else ret_data.squeeze(0)
-        return inp
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
     
-    def __repr__(self):
-        """
-        Represent the class.
-
-        Returns
-        -------
-        str
-            The representation of the class.
-
-        """
-        return self.__class__.__name__+'(probability={}, lower_limit={})'.format(
-            self.probability, self.lower_limit)
+    # ---------------------------------------------------------
+    # Test Data: Noisy Signal
+    # ---------------------------------------------------------
+    t = torch.linspace(0, 10, 100)
+    # Sine wave + Gaussian Noise
+    signal = torch.sin(t) + torch.randn(100) * 0.2
+    signal = signal.view(1, 1, 100)
     
+    # 1. Moving Average (Box Filter)
+    # Window 5 -> Strong smoothing
+    aug_avg = MovingAverage(probability=1.0, window_size=5)
+    out_avg = aug_avg(signal.clone())
+
+    # 2. Random Smoothing (Gaussian-like)
+    # Factor 0.8 -> Strong smoothing
+    aug_smooth = RandomSmoothing(probability=1.0, factor_range=(0.7, 0.9))
+    out_smooth = aug_smooth(signal.clone())
+
+    # ---------------------------------------------------------
+    # Visualization
+    # ---------------------------------------------------------
+    fig, axs = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+    
+    # Moving Average
+    axs[0].plot(t.numpy(), signal[0, 0].numpy(), 'k', alpha=0.3, label="Noisy Input")
+    axs[0].plot(t.numpy(), out_avg[0, 0].numpy(), 'b', label="Moving Average (Win=5)")
+    axs[0].set_title("Moving Average (Box Filter)")
+    axs[0].legend()
+    
+    # Random Smoothing
+    axs[1].plot(t.numpy(), signal[0, 0].numpy(), 'k', alpha=0.3, label="Noisy Input")
+    axs[1].plot(t.numpy(), out_smooth[0, 0].numpy(), 'r', label="Random Smoothing (Kernel Conv)")
+    axs[1].set_title("Random Smoothing (Soft Blur)")
+    axs[1].legend()
+    
+    plt.tight_layout()
+    plt.show()
+    print("Smoothing test done.")

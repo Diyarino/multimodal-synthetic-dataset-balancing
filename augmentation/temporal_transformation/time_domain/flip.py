@@ -1,191 +1,141 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Feb 14 14:58:15 2022
+Flipping & Reversal Augmentations.
+
+Geometric transformations that reverse the order of elements along specific axes.
+1. RandomFlip: General purpose flipping (Horizontal, Vertical).
+2. TimeReversal: Specifically for Time Series (reading signal backwards).
+3. RandomNegate: Inverts the values (Signal flipping upside down).
 
 @author: Diyar Altinses, M.Sc.
-
-to-do:
-    - 
 """
 
-# %% imports
-
+from typing import Tuple, Union
 import torch
 
-# %% argumentations
 
+class RandomFlip(torch.nn.Module):
+    """
+    Randomly flips the input tensor along specified dimensions.
+    
+    - For Images (H, W): dim=(-1,) is Horizontal Flip, dim=(-2,) is Vertical Flip.
+    - For Signals (L): dim=(-1,) is Time Reversal.
+    """
 
-class Flipping(torch.nn.Module):
-    def __init__(self, probability: float = 1., dims: tuple = (1, 0)):
+    def __init__(self, probability: float = 0.5, dims: Union[int, Tuple[int, ...]] = (-1,)):
         """
-        Flipps some of the elements of the input tensor.
-
         Parameters
         ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
-        dims : tuple, optional
-            The dimension where flipping is applied. The default is (0, 1).
-
-        Returns
-        -------
-        None.
-
+        probability : float
+            Probability of flipping.
+        dims : int or tuple
+            The dimension(s) to flip. 
+            Default (-1) flips the last dimension (Width or Time).
         """
         super().__init__()
         self.probability = probability
-        self.dims = dims
+        self.dims = dims if isinstance(dims, (tuple, list)) else (dims,)
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
+    def extra_repr(self) -> str:
+        return f"probability={self.probability}, dims={self.dims}"
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Call argumentation.
-
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be flipped.
-
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
-
+        Args:
+            x (torch.Tensor): Input tensor.
         """
-        if self.probability > torch.rand(1):
-            inp = inp.flip(self.dims)
-        return inp
+        # 1. Probability Check
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
 
-    def __repr__(self):
-        """
-        Represent the class.
+        # 2. Apply Flip
+        return torch.flip(x, dims=self.dims)
 
-        Returns
-        -------
-        str
-            The representation of the class.
 
-        """
-        return self.__class__.__name__+'(probability={}, dims={})'.format(
-            self.probability, self.dims)
-    
-    
-class LeftToRightFlipping(torch.nn.Module):
-    def __init__(self, probability: float = 1.,):
-        """
-        Randomly apply left ti right flipping to time series data.
+class TimeReversal(torch.nn.Module):
+    """
+    Reverses the time axis (reads the signal backwards).
+    Specific alias for RandomFlip(dim=-1).
+    """
 
-        Parameters
-        ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
-
-        Returns
-        -------
-        None.
-
-        """
+    def __init__(self, probability: float = 0.5):
         super().__init__()
         self.probability = probability
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
+        
+        # Flip only the last dimension (Time/Length)
+        return torch.flip(x, dims=(-1,))
 
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be padded.
 
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
-
-        """
-        if self.probability > torch.rand(1):
-            if inp.ndim == 2:
-                inp = inp.unsqueeze(0)
-                unsqueezed = True
-            else:
-                unsqueezed = False
-            indices = range(inp.size()[2] - 1, -1, -1)
-            dataFlipped = inp[:, :, indices]
-            inp = dataFlipped if not unsqueezed else dataFlipped.squeeze(0)
-        return inp
+class RandomNegate(torch.nn.Module):
+    """
+    Inverts the signal values (Value Flipping).
+    Mathematically: x = x * -1
     
-    
-class BiDirectionalFlipping(torch.nn.Module):
-    def __init__(self, probability: float = 1.,):
-        """
-        Randomly apply bidirectional flipping to time series data.
+    (Formerly named 'BiDirectionalFlipping_channelwise' in original code, which was misleading).
+    """
 
-        Parameters
-        ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
-
-        Returns
-        -------
-        None.
-
-        """
+    def __init__(self, probability: float = 0.5):
         super().__init__()
         self.probability = probability
 
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if torch.rand(1, device=x.device) > self.probability:
+            return x
+            
+        return -x
 
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be padded.
 
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
+# %% Test Block
 
-        """
-        if self.probability > torch.rand(1):
-            indices = range(inp.size()[-1] - 1, -1, -1)
-            inp = inp[..., indices]
-        return inp
+if __name__ == '__main__':
+    import matplotlib.pyplot as plt
     
+    # ---------------------------------------------------------
+    # Test Data: Asymmetrical Signal (Sawtooth)
+    # Shape: (1, 1, 100)
+    # ---------------------------------------------------------
+    t = torch.linspace(0, 1, 100)
+    # Sawtooth wave: Rises slowly, drops instantly
+    signal = (t % 1.0).view(1, 1, 100)
     
-class BiDirectionalFlipping_channelwise(torch.nn.Module):
-    def __init__(self, probability: float = 1.,):
-        """
-        Randomly apply bidirectional flipping channelwise to time series data.
+    # ---------------------------------------------------------
+    # 1. Time Reversal (Horizontal Flip)
+    # ---------------------------------------------------------
+    aug_time = TimeReversal(probability=1.0)
+    out_time = aug_time(signal.clone())
 
-        Parameters
-        ----------
-        probability : float, optional
-            Apply argumenttaion with probability using samples from a uniform distribution. The default is 1.0.
+    # ---------------------------------------------------------
+    # 2. Value Negation (Vertical Flip of the graph)
+    # ---------------------------------------------------------
+    aug_neg = RandomNegate(probability=1.0)
+    out_neg = aug_neg(signal.clone())
 
-        Returns
-        -------
-        None.
+    # ---------------------------------------------------------
+    # Visualization
+    # ---------------------------------------------------------
+    
 
-        """
-        super().__init__()
-        self.probability = probability
-
-    def forward(self, inp: torch.Tensor) -> torch.Tensor:
-        """
-        Call argumentation.
-
-        Parameters
-        ----------
-        inp : torch.Tensor
-            The input array which needs to be padded.
-
-        Returns
-        -------
-        inp :  torch.Tensor
-            The modified input.
-
-        """
-        if self.probability > torch.rand(1):
-            inp = inp * -1
-        return inp
+    fig, axs = plt.subplots(1, 3, figsize=(12, 4), sharey=True)
+    
+    # Original
+    axs[0].plot(signal[0, 0].numpy(), 'k')
+    axs[0].set_title("Original (Sawtooth)")
+    axs[0].grid(True, alpha=0.3)
+    
+    # Time Reversal
+    axs[1].plot(out_time[0, 0].numpy(), 'b')
+    axs[1].set_title("Time Reversal\n(Flipped Left-Right)")
+    axs[1].grid(True, alpha=0.3)
+    
+    # Negation
+    axs[2].plot(out_neg[0, 0].numpy(), 'r')
+    axs[2].set_title("Negation\n(Flipped Up-Down)")
+    axs[2].grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    plt.show()
+    print("Flipping Augmentations test done.")

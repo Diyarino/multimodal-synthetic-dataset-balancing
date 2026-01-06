@@ -13,12 +13,12 @@ to-do:
 from .channel_offset import *
 from .color_offset import *
 from .cracked import *
-from .dirt import *
+from .perlin_noise import *
 from .dust import *
 from .lens_flares import *
 from .magnitude import *
 from .nebula import *
-from .perlin import *
+from .perlin_fractal import *
 from .permute_channels import *
 from .waterdrops import *
 from .scratches import *
