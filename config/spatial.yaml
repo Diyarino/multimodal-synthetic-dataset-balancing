@@ -1,0 +1,54 @@
+---
+
+  
+ColorJitter:
+  brightness: [0, 2]
+  contrast: [1., 2.]
+  saturation: [0.35, .65]
+  hue: [0., 0.5]
+  
+GaussianBlur:
+  kernel_size: [25, 25]
+  sigma: [1, 9]
+
+Dust:
+  probability: 1.
+  amount: 100
+  radius: 0.01
+
+Flares:
+  probability: 1.
+  num_flares: 10
+  radius_range: [1,15] 
+  mode: circ
+  
+Waterdrops:
+  probability: 1.
+  amount: 10
+  radius_max: 100
+  kernel_size: [49,49]
+  sigma: [15,20] 
+
+Scratches:
+  probability: 1.
+  num_scratches: 50
+  max_length: 2
+  max_width: 2
+
+PerlinNoise:
+  probability: 1.
+  octaves: [1, 4]
+  persistence: 0.5
+  frequency: 2
+  alpha: [2, 4]
+  
+
+ReplaceGaussianNoise:
+  probability: 1.
+  
+RandomConstantReplace:
+  probability: 1.
+  values: [0., 255.]
+  
+  
+...

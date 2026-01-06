@@ -1,0 +1,25 @@
+
+TimeWarping:
+  probability: 0.3
+  
+AdditiveGaussianNoise:
+  probability:  0.3 
+  mean:  0
+  std:  .9
+  
+LinearTrend:
+  probability: 0.3
+  slope_range: [0.1, 0.6] 
+  bias_range: [0.1, 0.6] 
+  
+TimeCutout:
+  probability: 0.3
+  block_size: [5,25]
+  
+RandomFlip:
+  probability: 0.5
+  
+RandomChannelScaling:
+  probability: .5
+
+     
